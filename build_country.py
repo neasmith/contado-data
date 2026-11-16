@@ -292,11 +292,20 @@ def outline(geom):
 
 def main_box(geom):
     """Рамка основной части страны, без далёких островов и заморских земель: для камеры.
-    [мин. широта, мин. долгота, макс. широта, макс. долгота]."""
-    parts = [p for p in shapely.get_parts(geom) if not p.is_empty]
-    largest = max(parts, key=lambda p: p.area)
-    near = [p for p in parts if p.distance(largest) <= MAIN_DISTANCE]
-    west, south, east, north = shapely.union_all(near).bounds
+    [мин. широта, мин. долгота, макс. широта, макс. долгота]. Сравниваем рамки, а не сами
+    контуры: точное расстояние от тысячи островов до берега в миллион точек считается часами."""
+    bounds = [p.bounds for p in shapely.get_parts(geom) if not p.is_empty]
+    areas = [(b[2] - b[0]) * (b[3] - b[1]) for b in bounds]
+    x0, y0, x1, y1 = bounds[areas.index(max(areas))]
+
+    def gap(b):
+        dx = max(x0 - b[2], b[0] - x1, 0.0)
+        dy = max(y0 - b[3], b[1] - y1, 0.0)
+        return (dx * dx + dy * dy) ** 0.5
+
+    near = [b for b in bounds if gap(b) <= MAIN_DISTANCE]
+    west, south = min(b[0] for b in near), min(b[1] for b in near)
+    east, north = max(b[2] for b in near), max(b[3] for b in near)
     return [round(south, 4), round(west, 4), round(north, 4), round(east, 4)]
 
 
