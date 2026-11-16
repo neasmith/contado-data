@@ -44,6 +44,8 @@ jobs:
           PROBE: ${{ inputs.probe }}
         run: |
           export ASSETS="$(gh release view maps --json assets -q '.assets[].name' 2>/dev/null || true)"
+          [ -n "$PROBE" ] || curl -L --fail --retry 6 --retry-delay 20 --retry-all-errors \
+            -o geofabrik-index.json https://download.geofabrik.de/index-v1-nogeom.json
           python3 plan.py >> "$GITHUB_OUTPUT"
 
   build:

@@ -19,9 +19,7 @@ import json
 import os
 import sys
 import time
-import urllib.request
 
-INDEX_URL = "https://download.geofabrik.de/index-v1-nogeom.json"
 BASE = "https://download.geofabrik.de/"
 ROTATION = 6                         # за сколько месяцев обновляются все страны
 MAX_JOBS = 250                       # у GitHub не больше 256 задач в одной сборке
@@ -37,9 +35,10 @@ def load_config():
 
 
 def geofabrik_sources():
-    """Код страны → выгрузка («europe/italy»)."""
-    with urllib.request.urlopen(INDEX_URL, timeout=60) as response:
-        index = json.load(response)
+    """Код страны → выгрузка («europe/italy»). Список выгрузок сборка уже скачала (curl с повторами:
+    Geofabrik иногда не пускает с первого раза) — в файл geofabrik-index.json."""
+    with open("geofabrik-index.json") as f:
+        index = json.load(f)
     single, shared = {}, {}
     for feature in index["features"]:
         props = feature["properties"]
