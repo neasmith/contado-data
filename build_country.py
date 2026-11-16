@@ -220,7 +220,7 @@ def auto_config(all_areas, code):
         raise BuildError(f"no country boundary (ISO3166-1={code}) and no regions with ISO3166-2={prefix}…")
 
     shapely.prepare(inside_geom)
-    candidates = [a for a in all_areas if 3 <= a["level"] <= 10]
+    candidates = [a for a in own_areas(all_areas, code) if 3 <= a["level"] <= 10]
     points = [shapely.point_on_surface(a["geom"]) for a in candidates]
     within = shapely.contains(inside_geom, points) if candidates else []
     count, area, iso = {}, {}, {}
@@ -264,8 +264,14 @@ def auto_config(all_areas, code):
             "municipality": municipality, "inside": inside, "names": {}}
 
 
+def own_areas(all_areas, code):
+    """Без областей с кодом другой страны: у Австралии внутри её границы лежат остров Рождества
+    и Кокосовые острова — у них свои коды ISO, это отдельные страны в списке."""
+    return [a for a in all_areas if not a["iso"] or a["iso"] == code]
+
+
 def build_hierarchy(all_areas, code, config):
-    areas = [dict(a) for a in all_areas]          # копии: родителей проставляем у каждой страны свои
+    areas = [dict(a) for a in own_areas(all_areas, code)]   # копии: родителей проставляем у каждой страны свои
     prefix = code + "-"
     region_levels = as_list(config.get("region"))
     province_level = config.get("province")

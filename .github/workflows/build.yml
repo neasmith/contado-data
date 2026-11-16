@@ -79,13 +79,13 @@ jobs:
           df -h / | tail -1
 
       # Страна может лежать в нескольких выгрузках (source через пробел) — тогда склеиваем.
-      # Geofabrik иногда не пускает сразу (много загрузок с GitHub) — пробуем ещё, с паузой.
+      # Geofabrik иногда по нескольку минут не пускает часть адресов GitHub — пробуем до 15 минут.
       - name: Download from Geofabrik and keep only boundaries
         run: |
           n=0
           for source in ${{ matrix.source }}; do
             n=$((n+1))
-            curl -L --fail --retry 6 --retry-delay 30 --retry-all-errors -o source.osm.pbf \
+            curl -L --fail --retry 15 --retry-delay 60 --retry-all-errors -o source.osm.pbf \
               "https://download.geofabrik.de/$source-latest.osm.pbf"
             osmium tags-filter source.osm.pbf r/boundary=administrative -o part$n.osm.pbf
             rm source.osm.pbf
