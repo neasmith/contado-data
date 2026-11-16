@@ -2,16 +2,56 @@ name: Build map data
 
 on:
   workflow_dispatch:            # кнопка «Run workflow» во вкладке Actions
+    inputs:
+      countries:
+        description: "Country codes to build, e.g. IT FR (empty — all from countries.json)"
+        required: false
+        default: ""
+      probe:
+        description: "Instead of building, only show boundary levels of these Geofabrik extracts, e.g. europe/greece"
+        required: false
+        default: ""
   schedule:
     - cron: "17 3 3 * *"        # сам раз в месяц: 3-го числа в 03:17 UTC
 
 permissions:
   contents: write               # чтобы выкладывать готовые файлы в Releases
 
+concurrency:
+  group: map-data
+  cancel-in-progress: false
+
 jobs:
-  italy:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        env:
+          COUNTRIES: ${{ inputs.countries }}
+          PROBE: ${{ inputs.probe }}
+        run: python3 plan.py >> "$GITHUB_OUTPUT"
+      - name: Make sure the release exists
+        if: ${{ !inputs.probe }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view maps > /dev/null 2>&1 || \
+            gh release create maps --title "Maps" \
+              --notes "Country boundaries for viision. Data © OpenStreetMap contributors, ODbL."
+
+  build:
+    needs: plan
+    name: ${{ matrix.source }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false          # одна страна не собралась — остальные всё равно
+      max-parallel: 8
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,24 +65,59 @@ jobs:
           sudo apt-get install -y osmium-tool
           pip install "osmium>=4.0,<5" "shapely>=2.0" numpy
 
-      - name: Download Italy from Geofabrik
-        run: curl -L --fail --retry 3 -o italy.osm.pbf https://download.geofabrik.de/europe/italy-latest.osm.pbf
+      - name: Download from Geofabrik
+        run: curl -L --fail --retry 3 -o source.osm.pbf "https://download.geofabrik.de/${{ matrix.source }}-latest.osm.pbf"
 
-      - name: Keep only roads and boundaries
-        run: osmium tags-filter italy.osm.pbf w/highway r/boundary=administrative -o filtered.osm.pbf
+      - name: Keep only boundaries
+        run: osmium tags-filter source.osm.pbf r/boundary=administrative -o boundaries.osm.pbf
+
+      - name: Show boundary levels
+        if: ${{ matrix.codes == '' }}
+        run: python3 build_country.py --probe boundaries.osm.pbf
 
       - name: Build files for the app
-        run: python3 build_country.py filtered.osm.pbf out IT
+        if: ${{ matrix.codes != '' }}
+        run: python3 build_country.py boundaries.osm.pbf out ${{ matrix.codes }}
 
       - name: Publish to Releases
+        # И если одна из стран выгрузки не собралась — остальные выкладываем.
+        if: ${{ always() && matrix.codes != '' && hashFiles('out/*') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload maps out/* --clobber
+
+  catalog:
+    needs: [plan, build]
+    if: ${{ always() && needs.plan.result == 'success' && !inputs.probe }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: pip install "shapely>=2.0"
+
+      - name: Download built files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download maps --dir files --pattern "*-index.json" --pattern "*-comuni.vpkg"
+
+      - name: Build the list of countries
+        run: python3 build_catalog.py files catalog.json
+
+      - name: Publish the list
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view italy > /dev/null 2>&1 || \
-            gh release create italy --title "Italy" --notes "Street data for viision. © OpenStreetMap contributors, ODbL."
-          gh release upload italy out/* --clobber
-          # Убираем старые файлы, которых в новой сборке нет (например, прежние файлы регионов).
-          for name in $(gh release view italy --json assets -q '.assets[].name'); do
-            [ -f "out/$name" ] || gh release delete-asset italy "$name" --yes
+          gh release upload maps catalog.json --clobber
+          # Убираем файлы стран, которых в countries.json больше нет.
+          codes=$(python3 -c "import json; print(' '.join(k.lower() for k in json.load(open('countries.json')) if not k.startswith('_')))")
+          for name in $(gh release view maps --json assets -q '.assets[].name'); do
+            [ "$name" = "catalog.json" ] && continue
+            code="${name%%-*}"
+            echo " $codes " | grep -q " $code " || gh release delete-asset maps "$name" --yes
           done
-          gh release edit italy --title "Italy $(date -u +%Y-%m-%d)"
+          gh release edit maps --title "Maps $(date -u +%Y-%m-%d)"
