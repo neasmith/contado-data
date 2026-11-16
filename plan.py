@@ -22,6 +22,7 @@ import time
 
 BASE = "https://download.geofabrik.de/"
 ROTATION = 6                         # за сколько месяцев обновляются все страны
+SKIP = {"AQ"}                        # Антарктида: административных границ там нет
 MAX_JOBS = 250                       # у GitHub не больше 256 задач в одной сборке
 
 
@@ -72,7 +73,7 @@ def main():
     for code, item in config.items():
         if "source" in item:
             sources[code] = " ".join(item["source"]) if isinstance(item["source"], list) else item["source"]
-    everything = sorted(sources)
+    everything = sorted(c for c in sources if c not in SKIP)
     log(f"{len(everything)} countries")
 
     wanted = os.environ.get("COUNTRIES", "").replace(",", " ").upper().split()
