@@ -6,7 +6,8 @@
     "  В приложении они всегда 4, 6 и 8. region может быть списком уровней; province и region могут быть null.",
     "inside — как узнать, что область в этой стране: regions (по умолчанию) — регионы с тегом ISO3166-2 «<код>-…»;",
     "  municipalities — так же, но по коммунам (где нет регионов); country — по границе страны (admin_level 2).",
-    "names — как называть регионы и провинции в приложении: [одна, много]. prefix — «Province of Bologna»."
+    "names — как называть регионы, провинции и коммуны в приложении: [одна, много]. prefix — «Province of Bologna».",
+    "Запись только с names (без municipality) — уровни определяются сами, а названия берутся отсюда."
   ],
   "IT": {"name": "Italy", "source": "europe/italy", "region": 4, "province": 6, "municipality": 8,
          "names": {"region": ["Region", "Regions"], "province": ["Province", "Provinces"]}, "prefix": true},
@@ -54,6 +55,13 @@
          "inside": "country",
          "names": {"region": ["Nation", "Nations"], "province": ["County", "Counties"],
                    "municipality": ["District", "Districts"]}},
+  "US": {"names": {"region": ["State", "States"], "municipality": ["County", "Counties"]}},
+  "RU": {"names": {"municipality": ["District", "Districts"]}},
+  "IN": {"names": {"region": ["State", "States"], "province": ["District", "Districts"],
+                   "municipality": ["Subdistrict", "Subdistricts"]}},
+  "TR": {"names": {"region": ["Province", "Provinces"], "municipality": ["District", "Districts"]}},
+  "AU": {"names": {"region": ["State", "States"], "municipality": ["Local council", "Local councils"]}},
+  "IE": {"names": {"region": ["County", "Counties"], "municipality": ["Municipal district", "Municipal districts"]}},
   "NO": {"name": "Norway", "source": "europe/norway", "region": 4, "province": null, "municipality": 7,
          "names": {"region": ["County", "Counties"]}}
 }

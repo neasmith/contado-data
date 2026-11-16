@@ -265,9 +265,12 @@ def auto_config(all_areas, code):
 
 
 def own_areas(all_areas, code):
-    """Без областей с кодом другой страны: у Австралии внутри её границы лежат остров Рождества
-    и Кокосовые острова — у них свои коды ISO, это отдельные страны в списке."""
-    return [a for a in all_areas if not a["iso"] or a["iso"] == code]
+    """Без областей с кодом другой страны. У Австралии внутри её границы лежат остров Рождества
+    и Кокосовые острова — у них свой код ISO 3166-1, это отдельные страны в списке. Регион с кодом
+    ISO 3166-2 другой страны (UA-43 внутри границы России в OSM) относим к стране его кода."""
+    prefix = code + "-"
+    return [a for a in all_areas
+            if (not a["iso"] or a["iso"] == code) and (not a["iso2"] or a["iso2"].startswith(prefix))]
 
 
 def build_hierarchy(all_areas, code, config):

@@ -53,7 +53,8 @@ jobs:
     if: ${{ needs.plan.outputs.matrix != '[]' }}
     name: ${{ matrix.source }}
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # Geofabrik отдаёт около 1 МБ/с: Россия (4 ГБ) качается час с лишним, США (11 ГБ) — около трёх.
+    timeout-minutes: 350
     strategy:
       fail-fast: false          # одна страна не собралась — остальные всё равно
       max-parallel: 4           # не больше четырёх загрузок с Geofabrik сразу
