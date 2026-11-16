@@ -192,6 +192,13 @@ SHORT_NAMES = {
 }
 
 
+def boundary(all_areas, code):
+    """Граница страны с кодом ISO 3166-1. У заморских земель (Французская Гвиана, Пуэрто-Рико,
+    Новая Каледония) она в OSM не уровня 2, а 3–4: они и часть другой страны, и свой код."""
+    found = [a for a in all_areas if a["level"] <= 4 and a["iso"] == code]
+    return sorted(found, key=lambda a: a["level"])[:1]
+
+
 def english_name(code):
     """Название страны по-английски: «Russia», а не «Russian Federation»."""
     if code in SHORT_NAMES:
@@ -210,7 +217,7 @@ def auto_config(all_areas, code):
       провинции  — уровень между ними (сначала 6), тоже покрывающий страну.
     Печатает таблицу уровней — по ней видно, верно ли угадано."""
     prefix = code + "-"
-    official = [a for a in all_areas if a["level"] == 2 and a["iso"] == code]
+    official = boundary(all_areas, code)
     tagged = [a for a in all_areas if 3 <= a["level"] <= 6 and a["iso2"].startswith(prefix)]
     if official:
         inside, inside_geom = "country", official[0]["geom"]
@@ -313,7 +320,7 @@ def build_hierarchy(all_areas, code, config):
         land = shapely.union_all([m["geom"] for m in marked])
     elif inside == "country":
         regions = []
-        official = [a for a in areas if a["level"] == 2 and a["iso"] == code]
+        official = boundary(all_areas, code)
         if not official:
             raise BuildError(f"the country boundary (ISO3166-1={code}) is not in the extract")
         land = official[0]["geom"]
