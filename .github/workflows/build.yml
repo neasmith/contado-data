@@ -79,14 +79,17 @@ jobs:
           df -h / | tail -1
 
       # Страна может лежать в нескольких выгрузках (source через пробел) — тогда склеиваем.
-      # Geofabrik иногда по нескольку минут не пускает часть адресов GitHub — пробуем до 15 минут.
+      # Geofabrik иногда по нескольку минут не пускает часть адресов GitHub — тогда та же выгрузка
+      # с зеркала OpenStreetMap France (там Океания — «oceania»).
       - name: Download from Geofabrik and keep only boundaries
         run: |
           n=0
           for source in ${{ matrix.source }}; do
             n=$((n+1))
-            curl -L --fail --retry 15 --retry-delay 60 --retry-all-errors -o source.osm.pbf \
-              "https://download.geofabrik.de/$source-latest.osm.pbf"
+            mirror="https://download.openstreetmap.fr/extracts/$(echo "$source" | sed 's/^australia-oceania/oceania/')-latest.osm.pbf"
+            curl -L --fail --retry 8 --retry-delay 45 --retry-all-errors -o source.osm.pbf \
+                "https://download.geofabrik.de/$source-latest.osm.pbf" \
+              || curl -L --fail --retry 5 --retry-delay 30 --retry-all-errors -o source.osm.pbf "$mirror"
             osmium tags-filter source.osm.pbf r/boundary=administrative -o part$n.osm.pbf
             rm source.osm.pbf
           done
