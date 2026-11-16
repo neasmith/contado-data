@@ -267,10 +267,24 @@ def auto_config(all_areas, code):
 def own_areas(all_areas, code):
     """Без областей с кодом другой страны. У Австралии внутри её границы лежат остров Рождества
     и Кокосовые острова — у них свой код ISO 3166-1, это отдельные страны в списке. Регион с кодом
-    ISO 3166-2 другой страны (UA-43 внутри границы России в OSM) относим к стране его кода."""
+    ISO 3166-2 другой страны (UA-43 внутри границы России в OSM) относим к стране его кода.
+    Если на то же место в OSM есть ещё и регион без кода (Крым нарисован дважды: с кодом Украины и
+    без кода, внутри границы России), регион без кода тоже не берём: его середина лежит в регионе
+    с чужим кодом. Только для регионов и провинций — анклавы-коммуны (Кампионе-д'Италия внутри
+    Швейцарии) остаются своей стране."""
     prefix = code + "-"
-    return [a for a in all_areas
+    mine = [a for a in all_areas
             if (not a["iso"] or a["iso"] == code) and (not a["iso2"] or a["iso2"].startswith(prefix))]
+    foreign = [a["geom"] for a in all_areas
+               if a["iso2"] and not a["iso2"].startswith(prefix) and 3 <= a["level"] <= 6]
+    big = [k for k, a in enumerate(mine) if 3 <= a["level"] <= 6 and not a["iso2"]]
+    if not foreign or not big:
+        return mine
+    tree = STRtree(foreign)
+    points = [shapely.point_on_surface(mine[k]["geom"]) for k in big]
+    hit, _ = tree.query(points, predicate="within")
+    claimed = {big[i] for i in hit.tolist()}
+    return [a for k, a in enumerate(mine) if k not in claimed]
 
 
 def build_hierarchy(all_areas, code, config):

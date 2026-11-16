@@ -4,7 +4,7 @@ on:
   workflow_dispatch:            # кнопка «Run workflow» во вкладке Actions
     inputs:
       countries:
-        description: "Country codes to build, e.g. IT FR, or ALL (empty — new countries and a sixth of the rest)"
+        description: "Country codes to build (IT FR), ALL, or NEW (countries not built yet) plus codes. Empty — new countries and a sixth of the rest"
         required: false
         default: ""
       probe:

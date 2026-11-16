@@ -8,7 +8,7 @@
 лежит в двух выгрузках или её вообще нет в списке (Сан-Марино внутри Италии).
 Страны одной выгрузки собираются вместе: выгрузка качается один раз.
 
-  COUNTRIES="IT FR" — только эти страны; "ALL" — все.
+  COUNTRIES="IT FR" — только эти страны; "ALL" — все; "NEW RU" — все, которых ещё нет, и RU.
   Пусто (сборка по расписанию) — страны, которых ещё нет в выпуске, и шестая часть остальных
     по очереди: каждая страна обновляется раз в полгода (границы меняются редко,
     а весь мир с Geofabrik — около 80 ГБ).
@@ -80,6 +80,10 @@ def main():
                if line.endswith("-index.json")}
     if wanted == ["ALL"]:
         chosen = everything
+    elif "NEW" in wanted:
+        # Все страны, которых ещё нет в выпуске, и те, что перечислены рядом с NEW.
+        extra = [c for c in wanted if c != "NEW" and c in sources]
+        chosen = sorted({c for c in everything if c not in present} | set(extra))
     elif wanted:
         unknown = [c for c in wanted if c not in sources]
         if unknown:

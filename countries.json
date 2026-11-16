@@ -62,6 +62,9 @@
   "TR": {"names": {"region": ["Province", "Provinces"], "municipality": ["District", "Districts"]}},
   "AU": {"names": {"region": ["State", "States"], "municipality": ["Local council", "Local councils"]}},
   "IE": {"names": {"region": ["County", "Counties"], "municipality": ["Municipal district", "Municipal districts"]}},
+  "JP": {"names": {"region": ["Prefecture", "Prefectures"]}},
+  "BR": {"names": {"region": ["State", "States"]}},
+  "GR": {"names": {"municipality": ["Regional unit", "Regional units"]}},
   "NO": {"name": "Norway", "source": "europe/norway", "region": 4, "province": null, "municipality": 7,
          "names": {"region": ["County", "Counties"]}}
 }
