@@ -282,8 +282,9 @@ def own_areas(all_areas, code):
     prefix = code + "-"
     mine = [a for a in all_areas
             if (not a["iso"] or a["iso"] == code) and (not a["iso2"] or a["iso2"].startswith(prefix))]
+    # Своя граница заморской земли тоже с чужим кодом (Пуэрто-Рико — US-PR), но она своя.
     foreign = [a["geom"] for a in all_areas
-               if a["iso2"] and not a["iso2"].startswith(prefix) and 3 <= a["level"] <= 6]
+               if a["iso2"] and not a["iso2"].startswith(prefix) and a["iso"] != code and 3 <= a["level"] <= 6]
     big = [k for k, a in enumerate(mine) if 3 <= a["level"] <= 6 and not a["iso2"]]
     if not foreign or not big:
         return mine
