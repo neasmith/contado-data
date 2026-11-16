@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Готовит границы стран для приложения viision из выгрузки OpenStreetMap (.osm.pbf).
+Готовит границы стран для приложения Contado из выгрузки OpenStreetMap (.osm.pbf).
 
 Запуск:
   python3 build_country.py boundaries.osm.pbf out IT [SM …]
-      собрать страны (как устроена каждая — в countries.json). Из одной выгрузки можно собрать
-      несколько стран: из Италии — Италию и Сан-Марино.
+      собрать страны. Из одной выгрузки можно собрать несколько стран: из Италии — Италию и Сан-Марино.
+      Какой уровень границ у регионов, провинций и коммун, скрипт определяет сам (auto_config):
+      регионы — уровень с кодами ISO3166-2 «<код>-…», коммуны и провинции — уровни, которые покрывают
+      почти всю страну. countries.json — только исключения, где это не так, и названия уровней.
   python3 build_country.py --probe boundaries.osm.pbf
       только показать, какие уровни границ есть в выгрузке — чтобы настроить новую страну.
 
@@ -47,6 +49,7 @@ from collections import Counter
 
 import numpy as np
 import osmium
+import pycountry
 import shapely
 from shapely import STRtree
 
@@ -54,6 +57,12 @@ INDEX_VERSION = 3
 OUTLINE_TOLERANCE = 0.002          # градусы (~200 м): упрощение контуров в общем файле
 COMUNI_TOLERANCE = 0.0005          # градусы (~50 м): упрощение границ коммун в файле коммун
 MAIN_DISTANCE = 3.0                # градусы: части страны дальше этого от главной — «за морем» (для камеры)
+# Определение уровней. Коммуны — первый из этих уровней, что покрывает почти всю страну:
+# 8 — коммуны в большинстве стран, 7 — в Японии и Скандинавии, 6 — округа в США, районы в России.
+MUNICIPALITY_LEVELS = [8, 7, 6, 9, 10, 5]
+PROVINCE_LEVELS = [6, 5, 7]
+MIN_COVERAGE = 0.8                 # доля площади страны, которую должен покрыть уровень
+MAX_MUNICIPALITIES = 80_000
 
 
 class BuildError(Exception):
@@ -175,12 +184,92 @@ def pseudo_municipality(area):
             "geom": area["geom"], "iso": "", "iso2": ""}
 
 
+# Где официальное название ISO неудобно в списке стран.
+SHORT_NAMES = {
+    "RU": "Russia", "BN": "Brunei", "VA": "Vatican City", "FM": "Micronesia", "CD": "DR Congo",
+    "CG": "Congo", "PS": "Palestine", "MO": "Macau", "VG": "British Virgin Islands",
+    "VI": "U.S. Virgin Islands", "KN": "Saint Kitts and Nevis", "SH": "Saint Helena",
+}
+
+
+def english_name(code):
+    """Название страны по-английски: «Russia», а не «Russian Federation»."""
+    if code in SHORT_NAMES:
+        return SHORT_NAMES[code]
+    country = pycountry.countries.get(alpha_2=code)
+    if country is None:
+        return code
+    return getattr(country, "common_name", None) or country.name
+
+
+def auto_config(all_areas, code):
+    """Как устроена страна, если её нет в countries.json. Смотрим только области внутри страны:
+    внутри её границы (admin_level 2), а если её в выгрузке не собрать — внутри регионов с кодом ISO.
+      регионы    — уровень 3–6, где больше всего областей с кодом ISO3166-2 «<код>-…»;
+      коммуны    — первый из MUNICIPALITY_LEVELS, который покрывает ≥ 80% страны;
+      провинции  — уровень между ними (сначала 6), тоже покрывающий страну.
+    Печатает таблицу уровней — по ней видно, верно ли угадано."""
+    prefix = code + "-"
+    official = [a for a in all_areas if a["level"] == 2 and a["iso"] == code]
+    tagged = [a for a in all_areas if 3 <= a["level"] <= 6 and a["iso2"].startswith(prefix)]
+    if official:
+        inside, inside_geom = "country", official[0]["geom"]
+    elif tagged:
+        inside, inside_geom = "regions", shapely.union_all([a["geom"] for a in outermost(tagged)])
+    else:
+        raise BuildError(f"no country boundary (ISO3166-1={code}) and no regions with ISO3166-2={prefix}…")
+
+    shapely.prepare(inside_geom)
+    candidates = [a for a in all_areas if 3 <= a["level"] <= 10]
+    points = [shapely.point_on_surface(a["geom"]) for a in candidates]
+    within = shapely.contains(inside_geom, points) if candidates else []
+    count, area, iso = {}, {}, {}
+    for a, ok in zip(candidates, within):
+        if not ok:
+            continue
+        level = a["level"]
+        count[level] = count.get(level, 0) + 1
+        area[level] = area.get(level, 0.0) + a["geom"].area
+        if a["iso2"].startswith(prefix):
+            iso[level] = iso.get(level, 0) + 1
+
+    tagged_levels = [l for l in sorted(iso) if 3 <= l <= 6 and iso[l] >= 2]
+    if tagged_levels:
+        region = max(tagged_levels, key=lambda l: (iso[l], -l))
+    else:
+        region = next((l for l in sorted(count) if 3 <= l <= 6 and count[l] >= 2), None)
+    reference = area.get(region) or max(area.values(), default=0) or 1.0
+
+    def coverage(level):
+        return area.get(level, 0.0) / reference
+
+    base = region or 2
+    municipality = next((l for l in MUNICIPALITY_LEVELS
+                         if l > base and l in count and count[l] >= max(2, count.get(region, 0))
+                         and count[l] <= MAX_MUNICIPALITIES and coverage(l) >= MIN_COVERAGE), None)
+    province = None
+    if municipality:
+        province = next((l for l in PROVINCE_LEVELS
+                         if base < l < municipality and l in count
+                         and count.get(region, 0) < count[l] < count[municipality]
+                         and coverage(l) >= MIN_COVERAGE), None)
+
+    for level in sorted(count):
+        mark = {region: "region", province: "province", municipality: "municipality"}.get(level, "")
+        log(f"  {code} level {level}: {count[level]} inside, covers {coverage(level):.0%}, "
+            f"ISO {iso.get(level, 0)}  {mark}")
+    if inside == "regions" and region not in tagged_levels:
+        raise BuildError("regions have no ISO3166-2 codes and the country boundary is not in the extract")
+    return {"name": english_name(code), "region": region, "province": province,
+            "municipality": municipality, "inside": inside, "names": {}}
+
+
 def build_hierarchy(all_areas, code, config):
     areas = [dict(a) for a in all_areas]          # копии: родителей проставляем у каждой страны свои
     prefix = code + "-"
     region_levels = as_list(config.get("region"))
     province_level = config.get("province")
-    municipality_level = config["municipality"]
+    municipality_level = config.get("municipality")
     inside = config.get("inside", "regions")
 
     def tagged(level_list):
@@ -223,7 +312,7 @@ def build_hierarchy(all_areas, code, config):
     if province_level is not None:
         provinces = attach([a for a in areas if a["level"] == province_level], tops)
 
-    municipalities_all = [a for a in areas if a["level"] == municipality_level]
+    municipalities_all = [a for a in areas if a["level"] == municipality_level] if municipality_level else []
     municipalities = attach(municipalities_all, provinces)
     # Коммуны вне провинций (Валле-д'Аоста, где провинций нет) — сразу к региону или стране.
     orphans = [m for m in municipalities_all if m["parentID"] is None]
@@ -240,6 +329,13 @@ def build_hierarchy(all_areas, code, config):
             municipalities.append(pseudo_municipality(r))
     if not municipalities:
         municipalities.append(pseudo_municipality(country))     # страна без коммун (Монако)
+
+    # Граница страны в OSM идёт по морю (территориальные воды): для карты и камеры страна —
+    # это её суша, то есть регионы, а если их нет — коммуны.
+    if inside == "country":
+        parts = regions or [m for m in municipalities if m["id"] > 0]
+        if parts:
+            country["geom"] = shapely.union_all([part["geom"] for part in parts])
 
     for r in regions:
         r["level"] = 4
@@ -338,8 +434,10 @@ def level_names(config, regions, provinces):
         one, many = names.get("region", ["Region", "Regions"])
         result.append({"level": 4, "one": one, "many": many})
     if provinces:
-        one, many = names.get("province", ["Province", "Provinces"])
+        one, many = names.get("province", ["District", "Districts"])
         result.append({"level": 6, "one": one, "many": many, "prefix": bool(config.get("prefix"))})
+    one, many = names.get("municipality", ["Municipality", "Municipalities"])
+    result.append({"level": 8, "one": one, "many": many})
     return result
 
 
@@ -392,9 +490,13 @@ def main():
     failed = []
     for code in codes:
         try:
-            if code not in config:
-                raise BuildError("not in countries.json")
-            build(areas, code, config[code], out_dir)
+            settings = config.get(code)
+            if settings is None or "municipality" not in settings:
+                found = auto_config(areas, code)
+                found.update(settings or {})          # из countries.json — только поправки (название, имена уровней)
+                settings = found
+            settings.setdefault("name", english_name(code))
+            build(areas, code, settings, out_dir)
         except Exception as error:          # одна страна не собралась — остальные из этой выгрузки всё равно
             log(f"{code} FAILED: {error}")
             if not isinstance(error, BuildError):

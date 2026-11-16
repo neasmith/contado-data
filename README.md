@@ -1,18 +1,20 @@
-# viision-data
+# contado-data
 
-Country boundaries for the viision app, built from OpenStreetMap.
+Country borders for the Contado app, built from OpenStreetMap.
 
-Once a month GitHub Actions downloads each country from Geofabrik, keeps administrative boundaries,
-and publishes ready files in Releases (tag `maps`). In the app, people download only the countries they want.
+GitHub Actions downloads countries from Geofabrik, keeps only administrative boundaries,
+and publishes small files in Releases (tag `maps`). In the app, people download only the countries they want.
 
 - `catalog.json` — the list of countries: name, size, number of municipalities, a coarse outline
 - `<code>-index.json` — all areas of a country (regions, provinces, municipalities) with simplified outlines
-- `<code>-comuni.vpkg` — simplified boundaries of all municipalities (to see where you have been)
+- `<code>-comuni.vpkg` — simplified borders of all municipalities
 
-How each country is split into regions, provinces and municipalities is set in `countries.json`.
-To add a country: run the workflow with `probe` set to its Geofabrik path (for example `europe/greece`),
-look at the boundary levels in the log, add it to `countries.json`, and run the workflow with its code.
+Every country from Geofabrik's list is built. The script works out by itself which OpenStreetMap
+admin level is a region, a province and a municipality in each country; `countries.json` holds only
+the exceptions and the names of the levels. Borders rarely change, so each month the workflow builds
+new countries and a sixth of the others: every country is rebuilt about twice a year.
 
-The old `italy` release is used by earlier builds of the app and is no longer updated.
+Run by hand: Actions → Build map data → Run workflow, with country codes (`IT FR`) or `ALL`.
+To look at a new extract first, put its Geofabrik path (`europe/greece`) into `probe`.
 
 Data © OpenStreetMap contributors, available under the Open Database License (ODbL).
