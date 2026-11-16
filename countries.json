@@ -67,6 +67,8 @@
   "GR": {"names": {"municipality": ["Regional unit", "Regional units"]}},
   "PF": {"source": "australia-oceania/polynesie-francaise"},
   "PR": {"region": null, "province": null, "municipality": 6, "inside": "country", "names": {}},
+  "NC": {"region": 6, "province": null, "municipality": 8, "inside": "country",
+         "names": {"region": ["Province", "Provinces"]}},
   "NO": {"name": "Norway", "source": "europe/norway", "region": 4, "province": null, "municipality": 7,
          "names": {"region": ["County", "Counties"]}}
 }
