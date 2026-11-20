@@ -65,6 +65,7 @@ MUNICIPALITY_LEVELS = [8, 7, 6, 9, 10, 5]
 PROVINCE_LEVELS = [6, 5, 7]
 MIN_COVERAGE = 0.8                 # доля площади страны, которую должен покрыть уровень
 SPLIT_COVERAGE = 0.6               # доля площади региона без коммун, которую должен покрыть уровень внутри
+SPLIT_COASTAL = 0.3                # …или хотя бы такая, если уровень покрывает почти всё поделённое внутри
 MAX_MUNICIPALITIES = 80_000
 
 
@@ -185,7 +186,9 @@ def split_whole(tops, areas, used):
     """Регионы (или страна), у которых коммун на уровне страны нет: Москва и Петербург делятся
     на районы уровнем ниже, Берлин и Вена — на округа, провинции Канады — на округа переписи.
     Для каждого ищем внутри уровень из MUNICIPALITY_LEVELS (по порядку), у которого там ≥ 2 области
-    и вместе они покрывают ≥ SPLIT_COVERAGE его площади (у прибрежных регионов в площадь входит море).
+    и вместе они покрывают ≥ SPLIT_COVERAGE его площади. У приморских регионов (Новая Зеландия, Эстония)
+    в площадь входит 12-мильная полоса моря, и суша меньше 60%: тогда хватит SPLIT_COASTAL, если уровень
+    покрывает почти столько же, сколько самый полный уровень внутри (то есть всю сушу, а не один город).
     Возвращает {номер региона: (уровень, части)}; не нашлось — региона в ответе нет."""
     candidates = [a for a in areas if a["id"] not in used and 3 <= a["level"] <= 10]
     if not tops or not candidates:
@@ -202,9 +205,14 @@ def split_whole(tops, areas, used):
     for t, by_level in inside.items():
         top = tops[t]
         total = top["geom"].area or 1.0
+        covered = {level: sum(p["geom"].area for p in parts) for level, parts in by_level.items()}
+        fullest = max(covered.values())
         for level in MUNICIPALITY_LEVELS:
             parts = by_level.get(level, [])
-            if len(parts) >= 2 and sum(p["geom"].area for p in parts) / total >= SPLIT_COVERAGE:
+            if len(parts) < 2:
+                continue
+            share = covered[level] / total
+            if share >= SPLIT_COVERAGE or (share >= SPLIT_COASTAL and covered[level] >= 0.9 * fullest):
                 found[top["id"]] = (level, parts)
                 break
     return found
