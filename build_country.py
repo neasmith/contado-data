@@ -22,8 +22,10 @@
 
 Уровни в приложении всегда одни: 2 — страна, 4 — регион, 6 — провинция, 8 — коммуна.
 В OSM у каждой страны свои (у Хорватии коммуны — 7, у Чехии регионы — 6), поэтому здесь они
-переводятся. Где у провинции или региона нет коммун в данных (Берлин, кантоны-города),
-сама область считается и коммуной: номер — тот же со знаком минус.
+переводятся. Если регион на уровне коммун страны не делится (Москва, Берлин, Вена — города-регионы;
+страны, где у коммун нет общего уровня), его делит уровень помельче, который есть внутри именно него
+(split_whole). Где не делит ничто (у провинции или региона коммун в данных нет), сама область считается
+и коммуной: номер — тот же со знаком минус.
 
 Формат .vpkg (числа little-endian):
   "VPKG", версия UInt32 (=1), число записей UInt32
@@ -62,6 +64,7 @@ MAIN_DISTANCE = 3.0                # градусы: части страны д�
 MUNICIPALITY_LEVELS = [8, 7, 6, 9, 10, 5]
 PROVINCE_LEVELS = [6, 5, 7]
 MIN_COVERAGE = 0.8                 # доля площади страны, которую должен покрыть уровень
+SPLIT_COVERAGE = 0.6               # доля площади региона без коммун, которую должен покрыть уровень внутри
 MAX_MUNICIPALITIES = 80_000
 
 
@@ -176,6 +179,35 @@ def outermost(candidates):
         if i != o and (candidates[i]["level"], i) > (candidates[o]["level"], o):
             nested.add(i)
     return [c for k, c in enumerate(candidates) if k not in nested]
+
+
+def split_whole(tops, areas, used):
+    """Регионы (или страна), у которых коммун на уровне страны нет: Москва и Петербург делятся
+    на районы уровнем ниже, Берлин и Вена — на округа, провинции Канады — на округа переписи.
+    Для каждого ищем внутри уровень из MUNICIPALITY_LEVELS (по порядку), у которого там ≥ 2 области
+    и вместе они покрывают ≥ SPLIT_COVERAGE его площади (у прибрежных регионов в площадь входит море).
+    Возвращает {номер региона: (уровень, части)}; не нашлось — региона в ответе нет."""
+    candidates = [a for a in areas if a["id"] not in used and 3 <= a["level"] <= 10]
+    if not tops or not candidates:
+        return {}
+    tree = STRtree([t["geom"] for t in tops])
+    points = [shapely.point_on_surface(c["geom"]) for c in candidates]
+    child_index, top_index = tree.query(points, predicate="within")
+    inside = {}
+    for c, t in zip(child_index.tolist(), top_index.tolist()):
+        child, top = candidates[c], tops[t]
+        if child["level"] > top["level"] and child["id"] != top["id"]:
+            inside.setdefault(t, {}).setdefault(child["level"], []).append(child)
+    found = {}
+    for t, by_level in inside.items():
+        top = tops[t]
+        total = top["geom"].area or 1.0
+        for level in MUNICIPALITY_LEVELS:
+            parts = by_level.get(level, [])
+            if len(parts) >= 2 and sum(p["geom"].area for p in parts) / total >= SPLIT_COVERAGE:
+                found[top["id"]] = (level, parts)
+                break
+    return found
 
 
 def pseudo_municipality(area):
@@ -349,17 +381,34 @@ def build_hierarchy(all_areas, code, config):
     orphans = [m for m in municipalities_all if m["parentID"] is None]
     municipalities += attach(orphans, tops)
 
-    # 3. Области, у которых коммун в данных нет, — сами себе коммуны.
+    # 3. Провинция без коммун в данных — сама себе коммуна (кантон-город, Веймар: город и есть коммуна).
     with_children = {m["parentID"] for m in municipalities}
     with_provinces = {p["parentID"] for p in provinces}
     for p in provinces:
         if p["id"] not in with_children:
             municipalities.append(pseudo_municipality(p))
-    for r in regions:
-        if r["id"] not in with_children and r["id"] not in with_provinces:
-            municipalities.append(pseudo_municipality(r))
-    if not municipalities:
-        municipalities.append(pseudo_municipality(country))     # страна без коммун (Монако)
+    # 4. Регион без коммун и провинций (или страна без регионов и коммун) — сначала пробуем поделить
+    #    уровнем помельче внутри него (Москва — районы); не вышло — сам себе коммуна (Монако).
+    lonely = [r for r in regions if r["id"] not in with_children and r["id"] not in with_provinces]
+    if not regions and not provinces and not municipalities:
+        lonely = [country]
+    used = {a["id"] for a in regions + provinces + municipalities}
+    divided = split_whole(lonely, areas, used)
+    levels_used = Counter()
+    for top in lonely:
+        if top["id"] in divided:
+            level, parts = divided[top["id"]]
+            for part in parts:
+                part["parentID"] = top["id"]
+            municipalities += parts
+            levels_used[level] += 1
+        else:
+            municipalities.append(pseudo_municipality(top))
+    if lonely:
+        examples = ", ".join(f"{t['name']} ({len(divided[t['id']][1])})" for t in lonely if t["id"] in divided)
+        log(f"  {code}: {len(lonely)} without municipalities — {len(divided)} divided "
+            f"(levels {dict(levels_used)}), {len(lonely) - len(divided)} left whole"
+            + (f": {examples[:300]}" if examples else ""))
 
     # Граница страны в OSM идёт по морю (территориальные воды): для карты и камеры страна —
     # это её суша, то есть регионы, а если их нет — коммуны.
