@@ -9,8 +9,10 @@ and publishes small files in Releases (tag `maps`). In the app, people download 
 - `<code>-index.json` — all areas of a country (regions, provinces, municipalities) with simplified outlines
 - `<code>-comuni.vpkg` — simplified borders of all municipalities
 
-Every country from Geofabrik's list is built. The script works out by itself which OpenStreetMap
-admin level is a region, a province and a municipality in each country; `countries.json` holds only
+Every country from Geofabrik's list is built (`geofabrik-sources.json` keeps which extract holds each
+country, in case Geofabrik's list has no country codes). The script works out by itself which OpenStreetMap
+admin level is a region, a province and a municipality in each country; a region that this level does not
+divide (Moscow, Berlin, Vienna) is divided by a finer level inside it. `countries.json` holds only
 the exceptions and the names of the levels. Borders rarely change, so each month the workflow builds
 new countries and a sixth of the others: every country is rebuilt about twice a year.
 

@@ -24,6 +24,7 @@ BASE = "https://download.geofabrik.de/"
 ROTATION = 6                         # за сколько месяцев обновляются все страны
 SKIP = {"AQ"}                        # Антарктида: административных границ там нет
 MAX_JOBS = 250                       # у GitHub не больше 256 задач в одной сборке
+MIN_COUNTRIES = 150                  # меньше — список сломан: ничего не собираем и не удаляем
 
 
 def log(*args):
@@ -35,11 +36,24 @@ def load_config():
         return {k: v for k, v in json.load(f).items() if not k.startswith("_")}
 
 
+def saved_sources():
+    """Своя копия «код страны → выгрузка» (geofabrik-sources.json, по мировой сборке 17.11.2026).
+    20.11.2026 из списка Geofabrik пропали коды стран — без копии план видел бы 24 страны."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "geofabrik-sources.json")
+    with open(path) as f:
+        return json.load(f)
+
+
 def geofabrik_sources():
-    """Код страны → выгрузка («europe/italy»). Список выгрузок сборка уже скачала (curl с повторами:
-    Geofabrik иногда не пускает с первого раза) — в файл geofabrik-index.json."""
-    with open("geofabrik-index.json") as f:
-        index = json.load(f)
+    """Код страны → выгрузка («europe/italy»). Основа — своя копия; если в списке выгрузок Geofabrik
+    (сборка уже скачала его в geofabrik-index.json) у выгрузок есть коды стран — они главнее."""
+    sources = saved_sources()
+    try:
+        with open("geofabrik-index.json") as f:
+            index = json.load(f)
+    except (OSError, ValueError) as error:
+        log(f"Geofabrik list unreadable ({error}) — using the saved list")
+        return sources
     single, shared = {}, {}
     for feature in index["features"]:
         props = feature["properties"]
@@ -56,8 +70,10 @@ def geofabrik_sources():
                     single[code] = path
             elif code not in shared or len(codes) < shared[code][1]:
                 shared[code] = (path, len(codes))
-    sources = {code: path for code, (path, _) in shared.items()}
-    sources.update(single)
+    found = {code: path for code, (path, _) in shared.items()}
+    found.update(single)
+    log(f"Geofabrik list: {len(found)} countries with codes, saved list: {len(sources)}")
+    sources.update(found)
     return sources
 
 
@@ -75,6 +91,10 @@ def main():
             sources[code] = " ".join(item["source"]) if isinstance(item["source"], list) else item["source"]
     everything = sorted(c for c in sources if c not in SKIP)
     log(f"{len(everything)} countries")
+    if len(everything) < MIN_COUNTRIES:
+        # Сломанный список: собрать мало — полбеды, а вот шаг публикации удалил бы все остальные страны.
+        log(f"only {len(everything)} countries — the list of extracts looks broken, stopping")
+        sys.exit(1)
 
     wanted = os.environ.get("COUNTRIES", "").replace(",", " ").upper().split()
     present = {line.split("-")[0].upper() for line in os.environ.get("ASSETS", "").split()

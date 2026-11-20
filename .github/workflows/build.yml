@@ -87,15 +87,19 @@ jobs:
           df -h / | tail -1
 
       # Страна может лежать в нескольких выгрузках (source через пробел) — тогда склеиваем.
-      # Geofabrik иногда по нескольку минут не пускает часть адресов GitHub — тогда та же выгрузка
-      # с зеркала OpenStreetMap France (там Океания — «oceania»; если там такой выгрузки нет — сразу ошибка).
+      # Адрес у Geofabrik с 20.11.2026 — в папке выгрузки (europe/estonia/estonia-latest.osm.pbf);
+      # старый (europe/estonia-latest.osm.pbf) — запасной. Geofabrik иногда по нескольку минут не пускает
+      # часть адресов GitHub — тогда та же выгрузка с зеркала OpenStreetMap France (там Океания — «oceania»).
       - name: Download from Geofabrik and keep only boundaries
         run: |
           n=0
           for source in ${{ matrix.source }}; do
             n=$((n+1))
+            name=$(basename "$source")
             mirror="https://download.openstreetmap.fr/extracts/$(echo "$source" | sed 's/^australia-oceania/oceania/')-latest.osm.pbf"
             curl -L --fail --retry 8 --retry-delay 45 --retry-all-errors -o source.osm.pbf \
+                "https://download.geofabrik.de/$source/$name-latest.osm.pbf" \
+              || curl -L --fail --retry 2 --retry-delay 30 -o source.osm.pbf \
                 "https://download.geofabrik.de/$source-latest.osm.pbf" \
               || curl -L --fail --retry 5 --retry-delay 30 -o source.osm.pbf "$mirror"
             osmium tags-filter source.osm.pbf r/boundary=administrative -o part$n.osm.pbf
@@ -147,8 +151,12 @@ jobs:
         run: |
           gh release upload maps catalog.json --clobber
           # Убираем файлы стран, которых больше нет ни у Geofabrik, ни в countries.json.
+          # Только если список стран полный: 20.11.2026 сломанный список Geofabrik дал 24 страны,
+          # и этот шаг удалил файлы остальных 174.
           codes=" $(echo "$CODES" | tr 'A-Z' 'a-z') "
-          if [ -n "$CODES" ]; then
+          if [ "$(echo $CODES | wc -w)" -lt 150 ]; then
+            echo "only $(echo $CODES | wc -w) countries in the list — not deleting anything"
+          elif [ -n "$CODES" ]; then
             for name in $(gh release view maps --json assets -q '.assets[].name'); do
               # Трогаем только файлы стран: «it-index.json», «it-comuni.vpkg».
               echo "$name" | grep -qE '^[a-z]{2}-(index\.json|comuni\.vpkg)$' || continue
